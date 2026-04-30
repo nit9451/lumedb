@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation | LumeDB</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .doc-container {
+            max-width: 800px;
+            margin: 100px auto;
+            padding: 0 2rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+        .doc-container h1, .doc-container h2, .doc-container h3 {
+            color: var(--text-primary);
+            margin-top: 2.5rem;
+            margin-bottom: 1rem;
+        }
+        .doc-container h1 { font-size: 2.5rem; color: var(--accent); }
+        .doc-container h2 { font-size: 1.8rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+        .doc-container pre {
+            background: var(--bg-primary);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            overflow-x: auto;
+            margin: 1.5rem 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: #e2e8f0;
+        }
+        .doc-container code {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--bg-primary);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: var(--accent);
+        }
+        .doc-container pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        .doc-container ul { margin-left: 1.5rem; margin-bottom: 1.5rem; }
+        .doc-container li { margin-bottom: 0.5rem; }
+    </style>
+</head>
+<body>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <a href="index.html" class="navbar-brand">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+            LumeDB
+        </a>
+        <ul class="navbar-links">
+            <li><a href="index.html#features">Features</a></li>
+            <li><a href="index.html#vector">Vector Search</a></li>
+            <li><a href="learn.html" style="color: var(--accent);">Documentation</a></li>
+        </ul>
+        <div class="navbar-actions">
+            <a href="https://github.com/nit9451/lumedb" class="btn btn-ghost" target="_blank">GitHub</a>
+            <a href="https://lumedb-studio.vercel.app" class="btn btn-primary" target="_blank">Open Studio</a>
+        </div>
+    </nav>
+
+    <div class="doc-container">
+        <h1>LumeDB Learning Guide</h1>
+        <p>Welcome to LumeDB! This guide will take you from absolute beginner to advanced user. By the end of this document, you will understand how LumeDB works under the hood and how to use it for standard document storage and AI vector search.</p>
+
+        <h2>1. What is LumeDB?</h2>
+        <p>LumeDB is a <strong>high-performance, AI-native document database</strong> written from scratch in Rust.</p>
+        <p>Traditionally, developers building AI applications (like RAG - Retrieval-Augmented Generation) have to use <strong>two</strong> databases:</p>
+        <ul>
+            <li>A standard database (like MongoDB or Postgres) to store user data and text.</li>
+            <li>A vector database (like Pinecone or Qdrant) to store AI embeddings for semantic search.</li>
+        </ul>
+        <p><strong>LumeDB solves this by combining both into a single engine.</strong> It stores native JSON documents <em>and</em> high-dimensional vectors, allowing you to seamlessly filter data using standard operators (e.g., <code>"age" > 25</code>) while simultaneously ranking results by vector similarity (cosine distance).</p>
+
+        <h2>2. Core Concepts</h2>
+        <ul>
+            <li><strong>Collections:</strong> Similar to tables in SQL or collections in MongoDB. A collection holds many documents.</li>
+            <li><strong>Documents:</strong> JSON objects containing your data. Every document automatically gets a unique <code>_id</code>.</li>
+            <li><strong>Vector Index:</strong> A mathematical map that allows LumeDB to quickly find similar embeddings without scanning every single document.</li>
+            <li><strong>LSM-Tree Storage:</strong> LumeDB uses an Append-Only architecture (Log-Structured Merge Tree). It writes data extremely quickly to an in-memory <code>MemTable</code>, which is eventually flushed to disk as an immutable <code>SSTable</code>.</li>
+        </ul>
+
+        <h2>3. Getting Started</h2>
+        <p>LumeDB communicates over TCP using raw JSON strings. You can interact with it using the built-in Lume CLI Repl or via LumeDB Studio.</p>
+
+        <h3>Basic CRUD Operations</h3>
+        
+        <p><strong>Create a Collection</strong></p>
+<pre><code>{
+  "action": "createCollection",
+  "name": "users"
+}</code></pre>
+
+        <p><strong>Insert a Document</strong></p>
+<pre><code>{
+  "action": "insert",
+  "collection": "users",
+  "document": {
+    "name": "Alice",
+    "age": 30,
+    "role": "engineer"
+  }
+}</code></pre>
+
+        <p><strong>Find Documents</strong><br>
+        You can use MongoDB-like operators to filter data (<code>$eq</code>, <code>$gt</code>, <code>$gte</code>, <code>$in</code>, etc).</p>
+<pre><code>{
+  "action": "find",
+  "collection": "users",
+  "query": {
+    "age": { "$gte": 25 }
+  }
+}</code></pre>
+
+        <h2>4. Vector Search (AI Capabilities)</h2>
+        <p>To use LumeDB for AI, you first need to generate an "embedding" (an array of floats) using an AI model like OpenAI <code>text-embedding-3-small</code>.</p>
+
+        <h3>4.1 Create a Vector Index</h3>
+        <p>Before inserting vectors, tell LumeDB which field will hold the vector, how many dimensions it has, and how to measure distance (cosine, euclidean, or dot product).</p>
+<pre><code>{
+  "action": "createVectorIndex",
+  "collection": "articles",
+  "field": "embedding",
+  "dimensions": 1536,
+  "metric": "cosine"
+}</code></pre>
+
+        <h3>4.2 Insert Documents with Embeddings</h3>
+<pre><code>{
+  "action": "insert",
+  "collection": "articles",
+  "document": {
+    "title": "Introduction to Rust",
+    "category": "programming",
+    "embedding": [0.12, -0.45, 0.88, ...] 
+  }
+}</code></pre>
+
+        <h3>4.3 Filtered Vector Search</h3>
+        <p>This is LumeDB's superpower. You can pre-filter documents before running the heavy math for vector similarity.</p>
+<pre><code>{
+  "action": "vectorSearch",
+  "collection": "articles",
+  "vector": [0.11, -0.42, 0.89, ...],
+  "k": 5,
+  "filter": {
+    "category": "programming"
+  }
+}</code></pre>
+        <p>LumeDB will <em>only</em> search for similar vectors within articles that have the category "programming", returning the top 5 closest matches!</p>
+
+        <h2>Next Steps</h2>
+        <p>Now that you know the commands, try opening <a href="https://lumedb-studio.vercel.app" target="_blank" style="color: var(--accent);">LumeDB Studio</a> and pasting these JSON snippets into the Query Editor!</p>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <p>Built with Rust. MIT License. Version 0.1.0.</p>
+    </footer>
+
+</body>
+</html>
