@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LumeDB | AI-Native Document Database</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <a href="#" class="navbar-brand">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+            LumeDB
+        </a>
+        <ul class="navbar-links">
+            <li><a href="#features">Features</a></li>
+            <li><a href="#demo">How it Works</a></li>
+            <li><a href="#vector">Vector Search</a></li>
+            <li><a href="#compare">Compare</a></li>
+        </ul>
+        <div class="navbar-actions">
+                GitHub
+            </a>
+            <a href="#demo" class="btn btn-primary">Get Started</a>
+        </div>
+    </nav>
+
+    <!-- HERO -->
+    <header class="hero">
+        <h1>The <span class="highlight">AI-Native</span> Document Database Built in Rust</h1>
+        <p>Store documents, embeddings, and metadata in one place. Run vector similarity search alongside standard queries. No separate vector database needed.</p>
+        
+        <div class="hero-actions">
+            <a href="#demo" class="btn btn-primary">
+                Read the Documentation
+            </a>
+            <a href="#features" class="btn btn-ghost">
+                Explore Features
+            </a>
+        </div>
+
+        <div class="install-cmd">
+            <span class="prompt">$</span> cargo run --release --bin vortexdb-server
+        </div>
+    </header>
+
+    <!-- FEATURES -->
+    <section class="section" id="features" style="background-color: var(--bg-secondary);">
+        <div class="section-inner">
+            <h2 class="section-title">Built for Modern Data Loads</h2>
+            <p class="section-subtitle">LumeDB abandons the traditional B-Tree for an LSM-Tree architecture, providing massive write throughput without sacrificing read latency.</p>
+
+            <div class="features-grid">
+                <div class="feature-item">
+                    <div class="feature-icon"><i class="fas fa-layer-group"></i></div>
+                    <h3>LSM-Tree Storage</h3>
+                    <p>Append-only MemTable writes flushed to immutable SSTables. Eliminates the write-amplification bottleneck of traditional databases.</p>
+                </div>
+                
+                <div class="feature-item">
+                    <div class="feature-icon"><i class="fas fa-lock"></i></div>
+                    <h3>ACID Transactions</h3>
+                    <p>Full MVCC implementation with snapshot isolation. Transactions commit atomically via the Write-Ahead Log (WAL).</p>
+                </div>
+
+                <div class="feature-item">
+                    <div class="feature-icon"><i class="fas fa-bolt"></i></div>
+                    <h3>Bloom Filters</h3>
+                    <p>Every SSTable includes an embedded bloom filter, allowing O(1) skipping of disk reads for non-existent keys.</p>
+                </div>
+
+                <div class="feature-item">
+                    <div class="feature-icon"><i class="fas fa-compress-arrows-alt"></i></div>
+                    <h3>LZ4 Compression</h3>
+                    <p>All SSTable data blocks are heavily compressed, significantly reducing storage footprint and disk I/O.</p>
+                </div>
+
+                <div class="feature-item">
+                    <div class="feature-icon"><i class="fas fa-brain"></i></div>
+                    <h3>Vector Search</h3>
+                    <p>Built-in cosine similarity, euclidean distance, and dot product search. Store embeddings directly alongside your documents.</p>
+                </div>
+
+                <div class="feature-item">
+                    <div class="feature-icon"><i class="fas fa-filter"></i></div>
+                    <h3>Filtered Vector Queries</h3>
+                    <p>Combine metadata filters with vector search in a single query. Pre-filter by category, date, or any field before similarity ranking.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- DEMO / CODE SECTION -->
+    <section class="section" id="demo">
+        <div class="section-inner split-section">
+            <div>
+                <h2 class="section-title" style="text-align: left;">Simple. Familiar. Powerful.</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 1.1rem;">
+                    LumeDB uses a familiar JSON-based query DSL over a standard TCP connection. Use the interactive CLI or build your own driver.
+                </p>
+                <ul style="list-style: none; display: flex; flex-direction: column; gap: 1rem;">
+                    <li><i class="fas fa-check" style="color: var(--accent); margin-right: 8px;"></i> Native JSON document storage</li>
+                    <li><i class="fas fa-check" style="color: var(--accent); margin-right: 8px;"></i> Full support for <code>$eq</code>, <code>$gt</code>, <code>$in</code>, <code>$or</code></li>
+                    <li><i class="fas fa-check" style="color: var(--accent); margin-right: 8px;"></i> Update operators like <code>$set</code>, <code>$inc</code>, <code>$push</code></li>
+                    <li><i class="fas fa-check" style="color: var(--accent); margin-right: 8px;"></i> Fast secondary B-Tree indexes</li>
+                </ul>
+            </div>
+            
+            <div class="code-demo">
+                <div class="code-header">
+                    <span class="c-red"></span><span class="c-yellow"></span><span class="c-green"></span>
+                </div>
+                <pre><code><span class="comment">// 1. Insert a document</span>
+<span class="prompt">lume></span> db.users.insert({
+  <span class="keyword">"name"</span>: <span class="string">"Alice"</span>,
+  <span class="keyword">"age"</span>: 30,
+  <span class="keyword">"skills"</span>: [<span class="string">"rust"</span>, <span class="string">"python"</span>]
+})
+<span class="output">{"status":"ok", "insertedId":"65926216-..."}</span>
+
+<span class="comment">// 2. Query with operators</span>
+<span class="prompt">lume></span> db.users.find({
+  <span class="keyword">"age"</span>: {<span class="keyword">"$gte"</span>: 25},
+  <span class="keyword">"skills"</span>: {<span class="keyword">"$in"</span>: [<span class="string">"rust"</span>]}
+})
+<span class="output">{"status":"ok", "count": 1, "documents": [...]}</span>
+
+<span class="comment">// 3. Update document</span>
+<span class="prompt">lume></span> db.users.update(
+  {<span class="keyword">"name"</span>: <span class="string">"Alice"</span>}, 
+  {<span class="keyword">"$inc"</span>: {<span class="keyword">"age"</span>: 1}}
+)
+<span class="output">{"status":"ok", "modifiedCount":1}</span></code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- VECTOR SEARCH / RAG -->
+    <section class="section" id="vector" style="background-color: var(--bg-secondary);">
+        <div class="section-inner split-section">
+            <div>
+                <h2 class="section-title" style="text-align: left;">One Database for RAG</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 1.1rem;">
+                    Stop syncing data between your document store and a separate vector database.
+                    LumeDB stores your content, metadata, and embeddings together.
+                </p>
+                <ul style="list-style: none; display: flex; flex-direction: column; gap: 1rem;">
+                    <li><i class="fas fa-check" style="color: var(--accent); margin-right: 8px;"></i> Cosine, Euclidean, and Dot Product metrics</li>
+                    <li><i class="fas fa-check" style="color: var(--accent); margin-right: 8px;"></i> Automatic embedding detection on insert</li>
+                    <li><i class="fas fa-check" style="color: var(--accent); margin-right: 8px;"></i> Pre-filter by metadata, then rank by similarity</li>
+                    <li><i class="fas fa-check" style="color: var(--accent); margin-right: 8px;"></i> No Pinecone, no Qdrant &mdash; one standalone binary</li>
+                </ul>
+
+                <div style="margin-top: 2rem; padding: 1.25rem; background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius);">
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem; font-weight: 600;">RAG Pipeline with LumeDB</p>
+                    <ol style="color: var(--text-secondary); font-size: 0.9rem; padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                        <li>Chunk your PDF or text</li>
+                        <li>Generate embeddings via OpenAI or a local model</li>
+                        <li>Store chunk + metadata + embedding in one document</li>
+                        <li>Query with <code>vectorSearch</code> to retrieve relevant context</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="code-demo">
+                <div class="code-header">
+                    <span class="c-red"></span><span class="c-yellow"></span><span class="c-green"></span>
+                </div>
+                <pre><code><span class="comment">// 1. Create a vector index</span>
+<span class="prompt">lume></span> {
+  <span class="keyword">"action"</span>: <span class="string">"createVectorIndex"</span>,
+  <span class="keyword">"collection"</span>: <span class="string">"articles"</span>,
+  <span class="keyword">"field"</span>: <span class="string">"embedding"</span>,
+  <span class="keyword">"dimensions"</span>: 1536,
+  <span class="keyword">"metric"</span>: <span class="string">"cosine"</span>
+}
+
+<span class="comment">// 2. Insert doc with embedding</span>
+<span class="prompt">lume></span> {
+  <span class="keyword">"action"</span>: <span class="string">"insert"</span>,
+  <span class="keyword">"collection"</span>: <span class="string">"articles"</span>,
+  <span class="keyword">"document"</span>: {
+    <span class="keyword">"title"</span>: <span class="string">"Intro to Rust"</span>,
+    <span class="keyword">"embedding"</span>: [0.9, 0.1, ...]
+  }
+}
+
+<span class="comment">// 3. Similarity search + filter</span>
+<span class="prompt">lume></span> {
+  <span class="keyword">"action"</span>: <span class="string">"vectorSearch"</span>,
+  <span class="keyword">"collection"</span>: <span class="string">"articles"</span>,
+  <span class="keyword">"vector"</span>: [0.85, 0.2, ...],
+  <span class="keyword">"k"</span>: 5,
+  <span class="keyword">"filter"</span>: {<span class="keyword">"category"</span>: <span class="string">"programming"</span>}
+}
+<span class="output">→ score: 0.993, "Intro to Rust"</span></code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- COMPARISON -->
+    <section class="section" id="compare" style="background-color: var(--bg-secondary);">
+        <div class="section-inner">
+            <h2 class="section-title">Why Not Use Something Else?</h2>
+            
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Feature</th>
+                            <th>PostgreSQL + pgvector</th>
+                            <th>MongoDB + Pinecone</th>
+                            <th style="color: var(--accent);">LumeDB</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Document Storage</td>
+                            <td>JSONB (limited)</td>
+                            <td>MongoDB</td>
+                            <td style="color: var(--text-primary); font-weight: 500;">Native JSON</td>
+                        </tr>
+                        <tr>
+                            <td>Vector Search</td>
+                            <td>pgvector extension</td>
+                            <td>Pinecone (separate)</td>
+                            <td style="color: var(--text-primary); font-weight: 500;">Built-in</td>
+                        </tr>
+                        <tr>
+                            <td>Databases to Manage</td>
+                            <td>1 + extension</td>
+                            <td>2 (sync required)</td>
+                            <td style="color: var(--text-primary); font-weight: 500;">1 (standalone)</td>
+                        </tr>
+                        <tr>
+                            <td>Filtered Vector Search</td>
+                            <td>Post-filter</td>
+                            <td>Pinecone metadata</td>
+                            <td style="color: var(--text-primary); font-weight: 500;">Pre-filter + search</td>
+                        </tr>
+                        <tr>
+                            <td>ACID Compliance</td>
+                            <td>Yes</td>
+                            <td>Partial</td>
+                            <td style="color: var(--text-primary); font-weight: 500;">Yes (MVCC + WAL)</td>
+                        </tr>
+                        <tr>
+                            <td>Language</td>
+                            <td>C</td>
+                            <td>C++ / Python</td>
+                            <td style="color: var(--text-primary); font-weight: 500;">Rust (Memory Safe)</td>
+                        </tr>
+                        <tr>
+                            <td>Binary Size</td>
+                            <td>~30MB+</td>
+                            <td>Cloud-only</td>
+                            <td style="color: var(--text-primary); font-weight: 500;">1.7 MB</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <div style="font-weight: 600; font-size: 1.1rem; color: var(--text-primary); margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 20px; height: 20px;">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+            LumeDB
+        </div>
+        <p>Built with Rust. MIT License. Version 0.1.0.</p>
+    </footer>
+
+</body>
+</html>

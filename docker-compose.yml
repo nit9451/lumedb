@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  lumedb:
+    build: .
+    image: lumedb:latest
+    container_name: lumedb_server
+    ports:
+      - "7070:7070"
+    volumes:
+      - lumedb_data:/var/lib/lumedb
+    restart: unless-stopped
+
+volumes:
+  lumedb_data:
