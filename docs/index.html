@@ -47,8 +47,9 @@
             </a>
         </div>
 
+        <p style="margin-top: 2rem; color: var(--text-muted); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Run instantly via Docker:</p>
         <div class="install-cmd">
-            <span class="prompt">$</span> cargo run --release --bin vortexdb-server
+            <span class="prompt">$</span> docker run -d -p 7070:7070 -v lumedb_data:/var/lib/lumedb niti45/lumedb
         </div>
     </header>
 
