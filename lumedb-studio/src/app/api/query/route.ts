@@ -6,7 +6,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { host = '127.0.0.1', port = 7070, ...command } = body;
     
-    return new Promise((resolve) => {
+    return new Promise<Response>((resolve) => {
       const client = new net.Socket();
       let responseData = '';
       
