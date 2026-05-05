@@ -31,6 +31,8 @@ pub enum QueryFilter {
     Exists { field: String, exists: bool },
     /// Regex match: { field: { $regex: "pattern" } }
     Regex { field: String, pattern: String },
+    /// Array size: { field: { $size: 3 } }
+    Size { field: String, size: usize },
     /// Logical AND: { $and: [filters] }
     And(Vec<QueryFilter>),
     /// Logical OR: { $or: [filters] }
@@ -165,6 +167,18 @@ impl QueryFilter {
                                 });
                             }
                         }
+                        "$size" => {
+                            if let Some(size) = val.as_u64() {
+                                filters.push(QueryFilter::Size {
+                                    field: field.to_string(),
+                                    size: size as usize,
+                                });
+                            } else {
+                                return Err(LumeError::InvalidQuery(
+                                    "$size must be a positive integer".to_string(),
+                                ));
+                            }
+                        }
                         _ => {
                             return Err(LumeError::InvalidQuery(format!(
                                 "Unknown operator: {}",
@@ -255,6 +269,13 @@ impl QueryFilter {
                 doc.get_field_value(field)
                     .and_then(|v| v.as_str().map(|s| s.to_string()))
                     .map(|s| s.contains(pattern.as_str()))
+                    .unwrap_or(false)
+            }
+
+            QueryFilter::Size { field, size } => {
+                doc.get_field_value(field)
+                    .and_then(|v| v.as_array().map(|arr| arr.len()))
+                    .map(|len| len == *size)
                     .unwrap_or(false)
             }
 
@@ -431,5 +452,20 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].data.get("name").unwrap(), &json!("Alice"));
         assert_eq!(result[1].data.get("name").unwrap(), &json!("Bob"));
+    }
+
+    #[test]
+    fn test_size_operator() {
+        let filter = QueryFilter::from_json(&json!({
+            "tags": { "$size": 2 }
+        })).unwrap();
+
+        let doc_match = make_doc(json!({"tags": ["a", "b"]}));
+        let doc_too_long = make_doc(json!({"tags": ["a", "b", "c"]}));
+        let doc_not_array = make_doc(json!({"tags": "a"}));
+
+        assert!(filter.matches(&doc_match));
+        assert!(!filter.matches(&doc_too_long));
+        assert!(!filter.matches(&doc_not_array));
     }
 }

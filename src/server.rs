@@ -1,6 +1,7 @@
 // LumeDB TCP Server
 // Accepts client connections and processes JSON commands
 
+use crate::auth::Role;
 use crate::engine::{Engine, EngineConfig};
 use crate::error::LumeResult;
 use crate::query::QueryOptions;
@@ -57,6 +58,7 @@ pub async fn start_server(config: ServerConfig) -> LumeResult<()> {
             let (reader, mut writer) = socket.into_split();
             let mut reader = BufReader::new(reader);
             let mut line = String::new();
+            let mut session_role: Option<Role> = None;
 
             // Send welcome message
             let welcome = json!({
@@ -82,7 +84,7 @@ pub async fn start_server(config: ServerConfig) -> LumeResult<()> {
                             continue;
                         }
 
-                        let response = process_command(&engine, trimmed);
+                        let response = process_command(&engine, trimmed, &mut session_role);
                         let response_str = format!("{}\n", response.to_string());
                         if writer.write_all(response_str.as_bytes()).await.is_err() {
                             break;
@@ -99,7 +101,7 @@ pub async fn start_server(config: ServerConfig) -> LumeResult<()> {
 }
 
 /// Process a JSON command and return a response
-fn process_command(engine: &Engine, input: &str) -> Value {
+fn process_command(engine: &Engine, input: &str, session_role: &mut Option<Role>) -> Value {
     // Parse the command
     let cmd: Value = match serde_json::from_str(input) {
         Ok(v) => v,
@@ -114,7 +116,65 @@ fn process_command(engine: &Engine, input: &str) -> Value {
     let action = cmd.get("action").and_then(|v| v.as_str()).unwrap_or("");
     let collection = cmd.get("collection").and_then(|v| v.as_str()).unwrap_or("");
 
+    // Authorization Check
+    let is_authenticated = session_role.is_some();
+    let can_read = session_role.as_ref().map(|r| r.can_read()).unwrap_or(false);
+    let can_write = session_role.as_ref().map(|r| r.can_write()).unwrap_or(false);
+    let can_admin = session_role.as_ref().map(|r| r.can_admin()).unwrap_or(false);
+
+    if action != "authenticate" && action != "ping" {
+        if !is_authenticated {
+            return json!({"status": "error", "error": "Unauthorized. Please authenticate first."});
+        }
+        
+        match action {
+            "createCollection" | "dropCollection" | "createIndex" | "createVectorIndex" => {
+                if !can_admin {
+                    return json!({"status": "error", "error": "Forbidden. Requires Admin role."});
+                }
+            }
+            "insert" | "insertMany" | "update" | "delete" => {
+                // Anyone with write access, but restrict writing to _users to Admin only
+                if collection == "_users" && !can_admin {
+                    return json!({"status": "error", "error": "Forbidden. Modifying _users requires Admin role."});
+                }
+                if !can_write {
+                    return json!({"status": "error", "error": "Forbidden. Requires ReadWrite role."});
+                }
+            }
+            "find" | "findOne" | "count" | "listCollections" | "listIndexes" | "vectorSearch" | "listVectorIndexes" | "stats" => {
+                if collection == "_users" && !can_admin {
+                    return json!({"status": "error", "error": "Forbidden. Reading _users requires Admin role."});
+                }
+                if !can_read {
+                    return json!({"status": "error", "error": "Forbidden. Requires ReadOnly role."});
+                }
+            }
+            _ => {}
+        }
+    }
+
     match action {
+        "authenticate" => {
+            let username = cmd.get("username").and_then(|v| v.as_str()).unwrap_or("");
+            let password = cmd.get("password").and_then(|v| v.as_str()).unwrap_or("");
+            
+            let query = json!({"username": username, "password": password});
+            match engine.find_one("_users", &query) {
+                Ok(Some(user_doc)) => {
+                    if let Some(role_str) = user_doc.get_field_value("role").and_then(|v| v.as_str().map(|s| s.to_string())) {
+                        if let Some(role) = Role::from_str(&role_str) {
+                            *session_role = Some(role);
+                            return json!({"status": "ok", "message": "Authentication successful", "role": role_str});
+                        }
+                    }
+                    json!({"status": "error", "error": "Invalid role in user document"})
+                }
+                Ok(None) => json!({"status": "error", "error": "Invalid credentials"}),
+                Err(e) => json!({"status": "error", "error": e.to_string()}),
+            }
+        }
+
         // ===== Collection Operations =====
         "createCollection" => {
             match engine.create_collection(collection) {
@@ -148,7 +208,8 @@ fn process_command(engine: &Engine, input: &str) -> Value {
         // ===== Document Operations =====
         "insert" => {
             let data = cmd.get("document").cloned().unwrap_or(json!({}));
-            match engine.insert(collection, data) {
+            let ttl = cmd.get("ttl").and_then(|v| v.as_u64());
+            match engine.insert(collection, data, ttl) {
                 Ok(doc) => json!({
                     "status": "ok",
                     "insertedId": doc.id,
@@ -164,7 +225,8 @@ fn process_command(engine: &Engine, input: &str) -> Value {
                 .and_then(|v| v.as_array())
                 .cloned()
                 .unwrap_or_default();
-            match engine.insert_many(collection, docs) {
+            let ttl = cmd.get("ttl").and_then(|v| v.as_u64());
+            match engine.insert_many(collection, docs, ttl) {
                 Ok(inserted) => {
                     let ids: Vec<String> = inserted.iter().map(|d| d.id.clone()).collect();
                     json!({
@@ -362,6 +424,7 @@ fn process_command(engine: &Engine, input: &str) -> Value {
             "status": "error",
             "error": format!("Unknown action: '{}'", action),
             "available_actions": [
+                "authenticate",
                 "createCollection", "dropCollection", "listCollections",
                 "insert", "insertMany", "find", "findOne", "update", "delete", "count",
                 "createIndex", "listIndexes",

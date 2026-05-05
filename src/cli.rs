@@ -129,6 +129,22 @@ fn main() {
                     continue;
                 }
 
+                // Handle "auth <username> <password>" command
+                if line.starts_with("auth ") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() == 3 {
+                        let cmd = json!({
+                            "action": "authenticate",
+                            "username": parts[1],
+                            "password": parts[2]
+                        });
+                        send_command(&mut writer, &mut reader, &cmd);
+                    } else {
+                        println!("  {} Usage: auth <username> <password>", "❌".red());
+                    }
+                    continue;
+                }
+
                 // Handle collection commands: db.<collection>.<action>(...)
                 if let Some(cmd) = parse_db_command(&line, &current_collection) {
                     send_command(&mut writer, &mut reader, &cmd);
@@ -432,6 +448,7 @@ fn print_help() {
 ║    db.<coll>.createIndex("field")  Create index                  ║
 ║                                                                  ║
 ║  UTILITY                                                         ║
+║    auth <user> <pass>   Authenticate session                     ║
 ║    stats                Database statistics                      ║
 ║    ping                 Test connection                          ║
 ║    clear                Clear screen                             ║

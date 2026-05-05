@@ -8,7 +8,7 @@ use crate::index::{IndexDef, IndexManager};
 use crate::query::{apply_options, QueryFilter, QueryOptions};
 use crate::storage::memtable::MemTable;
 use crate::storage::sstable::{SSTable, SSTableWriter};
-use crate::transaction::TransactionManager;
+use crate::transaction::{TransactionManager, TxnOperation};
 use crate::vector::{VectorIndexConfig, VectorIndexManager, VectorSearchResult, DistanceMetric};
 use crate::wal::{Wal, WalOperation};
 use parking_lot::RwLock;
@@ -105,6 +105,17 @@ impl Engine {
 
         // Replay WAL for recovery
         engine.recover()?;
+
+        // Bootstrap _users collection
+        if !engine.collections.read().contains_key("_users") {
+            engine.create_collection("_users")?;
+            engine.create_index("_users", "username", true)?;
+            engine.insert("_users", serde_json::json!({
+                "username": "admin",
+                "password": "password",
+                "role": "admin"
+            }), None)?;
+        }
 
         Ok(engine)
     }
@@ -232,10 +243,13 @@ impl Engine {
     // ===== Document Operations =====
 
     /// Insert a document into a collection
-    pub fn insert(&self, collection: &str, data: Value) -> LumeResult<Document> {
+    pub fn insert(&self, collection: &str, data: Value, ttl: Option<u64>) -> LumeResult<Document> {
         self.ensure_collection(collection)?;
 
-        let doc = Document::new(data);
+        let mut doc = Document::new(data);
+        if let Some(t) = ttl {
+            doc.meta.ttl = Some(t);
+        }
         let doc_bytes = doc.to_bytes();
 
         // WAL log
@@ -284,10 +298,10 @@ impl Engine {
     }
 
     /// Insert multiple documents
-    pub fn insert_many(&self, collection: &str, docs: Vec<Value>) -> LumeResult<Vec<Document>> {
+    pub fn insert_many(&self, collection: &str, docs: Vec<Value>, ttl: Option<u64>) -> LumeResult<Vec<Document>> {
         let mut results = Vec::with_capacity(docs.len());
         for data in docs {
-            results.push(self.insert(collection, data)?);
+            results.push(self.insert(collection, data, ttl)?);
         }
         Ok(results)
     }
@@ -644,8 +658,59 @@ impl Engine {
 
     /// Rollback a transaction
     pub fn rollback_transaction(&self, txn_id: u64) -> LumeResult<()> {
-        let _ops = self.txn_manager.rollback(txn_id)?;
-        // TODO: Undo operations from the cache
+        let ops = self.txn_manager.rollback(txn_id)?;
+        
+        for op in ops.into_iter().rev() {
+            match op {
+                TxnOperation::Insert { collection, doc_id, data: _ } => {
+                    let cache_key = format!("{}:{}", collection, doc_id);
+                    if let Some(doc) = self.doc_cache.read().get(&cache_key) {
+                        self.index_manager.unindex_document(&collection, &doc_id, &doc.data);
+                        self.vector_manager.unindex_document(&collection, &doc_id);
+                    }
+                    if let Some(mt) = self.memtables.read().get(&collection) {
+                        mt.delete(&cache_key, self.wal.read().sequence());
+                    }
+                    self.doc_cache.write().remove(&cache_key);
+                    if let Some(meta) = self.collections.write().get_mut(&collection) {
+                        meta.doc_count = meta.doc_count.saturating_sub(1);
+                    }
+                }
+                TxnOperation::Update { collection, doc_id, old_data, new_data: _ } => {
+                    let cache_key = format!("{}:{}", collection, doc_id);
+                    if let Ok(old_doc) = Document::from_bytes(&old_data) {
+                        if let Some(current_doc) = self.doc_cache.read().get(&cache_key) {
+                            self.index_manager.unindex_document(&collection, &doc_id, &current_doc.data);
+                            self.vector_manager.unindex_document(&collection, &doc_id);
+                        }
+                        
+                        self.doc_cache.write().insert(cache_key.clone(), old_doc.clone());
+                        if let Some(mt) = self.memtables.read().get(&collection) {
+                            mt.put(cache_key, old_data, self.wal.read().sequence());
+                        }
+                        
+                        let _ = self.index_manager.index_document(&collection, &doc_id, &old_doc.data);
+                        self.vector_manager.auto_index_document(&collection, &doc_id, &old_doc.data);
+                    }
+                }
+                TxnOperation::Delete { collection, doc_id, old_data } => {
+                    let cache_key = format!("{}:{}", collection, doc_id);
+                    if let Ok(old_doc) = Document::from_bytes(&old_data) {
+                        self.doc_cache.write().insert(cache_key.clone(), old_doc.clone());
+                        if let Some(mt) = self.memtables.read().get(&collection) {
+                            mt.put(cache_key, old_data, self.wal.read().sequence());
+                        }
+                        
+                        let _ = self.index_manager.index_document(&collection, &doc_id, &old_doc.data);
+                        self.vector_manager.auto_index_document(&collection, &doc_id, &old_doc.data);
+                        
+                        if let Some(meta) = self.collections.write().get_mut(&collection) {
+                            meta.doc_count += 1;
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -748,7 +813,8 @@ mod tests {
     use serde_json::json;
 
     fn test_engine() -> Engine {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data_engine");
+        let id = uuid::Uuid::new_v4().to_string();
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("test_data_engine_{}", id));
         let _ = fs::remove_dir_all(&dir);
         let config = EngineConfig {
             data_dir: dir,
@@ -764,13 +830,13 @@ mod tests {
         let engine = test_engine();
 
         engine
-            .insert("users", json!({"name": "Alice", "age": 30}))
+            .insert("users", json!({"name": "Alice", "age": 30}), None)
             .unwrap();
         engine
-            .insert("users", json!({"name": "Bob", "age": 25}))
+            .insert("users", json!({"name": "Bob", "age": 25}), None)
             .unwrap();
         engine
-            .insert("users", json!({"name": "Charlie", "age": 35}))
+            .insert("users", json!({"name": "Charlie", "age": 35}), None)
             .unwrap();
 
         // Find all
@@ -798,7 +864,7 @@ mod tests {
         let engine = test_engine();
 
         engine
-            .insert("users", json!({"name": "Alice", "age": 30}))
+            .insert("users", json!({"name": "Alice", "age": 30}), None)
             .unwrap();
 
         // Update
@@ -834,14 +900,10 @@ mod tests {
         engine.create_collection("posts").unwrap();
 
         let collections = engine.list_collections();
-        assert_eq!(collections.len(), 2);
+        assert_eq!(collections.len(), 3);
 
         engine.drop_collection("posts").unwrap();
         let collections = engine.list_collections();
-        assert_eq!(collections.len(), 1);
-
-        let _ = fs::remove_dir_all(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data_engine"),
-        );
+        assert_eq!(collections.len(), 2);
     }
 }

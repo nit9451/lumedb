@@ -213,6 +213,45 @@ impl Document {
                 }
             }
 
+            // Handle $rename operator
+            if let Some(Value::Object(rename_fields)) = updates.get("$rename") {
+                for (old_key, new_key_val) in rename_fields {
+                    if let Some(new_key) = new_key_val.as_str() {
+                        if let Some(val) = self.data.remove(old_key) {
+                            self.data.insert(new_key.to_string(), val);
+                        }
+                    }
+                }
+            }
+
+            // Handle $mul operator
+            if let Some(Value::Object(mul_fields)) = updates.get("$mul") {
+                for (key, mul_value) in mul_fields {
+                    if let Some(current) = self.data.get(key) {
+                        let new_val = match (current, mul_value) {
+                            (Value::Number(a), Value::Number(b)) => {
+                                if let (Some(a), Some(b)) = (a.as_f64(), b.as_f64()) {
+                                    serde_json::json!(a * b)
+                                } else {
+                                    continue;
+                                }
+                            }
+                            _ => continue,
+                        };
+                        self.data.insert(key.clone(), new_val);
+                    }
+                }
+            }
+
+            // Handle $pullAll operator
+            if let Some(Value::Object(pull_all_fields)) = updates.get("$pullAll") {
+                for (key, remove_values) in pull_all_fields {
+                    if let (Some(Value::Array(arr)), Value::Array(to_remove)) = (self.data.get_mut(key), remove_values) {
+                        arr.retain(|item| !to_remove.contains(item));
+                    }
+                }
+            }
+
             // If no operators, treat as full replacement (minus _id)
             if !updates.keys().any(|k| k.starts_with('$')) {
                 for (key, value) in updates {
@@ -313,6 +352,46 @@ mod tests {
         }));
 
         assert_eq!(doc.data.get("balance").unwrap(), &json!(150.0));
+    }
+
+    #[test]
+    fn test_document_mul() {
+        let mut doc = Document::new(json!({
+            "price": 20.0
+        }));
+
+        doc.apply_update(&json!({
+            "$mul": { "price": 1.5 }
+        }));
+
+        assert_eq!(doc.data.get("price").unwrap(), &json!(30.0));
+    }
+
+    #[test]
+    fn test_document_rename() {
+        let mut doc = Document::new(json!({
+            "oldName": "Alice"
+        }));
+
+        doc.apply_update(&json!({
+            "$rename": { "oldName": "newName" }
+        }));
+
+        assert!(doc.data.get("oldName").is_none());
+        assert_eq!(doc.data.get("newName").unwrap(), &json!("Alice"));
+    }
+
+    #[test]
+    fn test_document_pull_all() {
+        let mut doc = Document::new(json!({
+            "tags": ["a", "b", "c", "d"]
+        }));
+
+        doc.apply_update(&json!({
+            "$pullAll": { "tags": ["b", "c"] }
+        }));
+
+        assert_eq!(doc.data.get("tags").unwrap(), &json!(["a", "d"]));
     }
 
     #[test]

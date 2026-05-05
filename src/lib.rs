@@ -11,3 +11,4 @@ pub mod server;
 pub mod engine;
 pub mod wal;
 pub mod error;
+pub mod auth;

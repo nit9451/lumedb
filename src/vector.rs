@@ -201,12 +201,23 @@ impl VectorIndexManager {
         Ok(())
     }
 
-    /// Remove a document from vector indexes
+    /// Remove a document from vector indexes by field
     pub fn remove_vector(&self, collection: &str, field: &str, doc_id: &str) {
         let key = format!("{}:{}", collection, field);
         let mut indexes = self.indexes.write();
         if let Some(index) = indexes.get_mut(&key) {
             index.remove(doc_id);
+        }
+    }
+
+    /// Remove a document from all vector indexes in a collection
+    pub fn unindex_document(&self, collection: &str, doc_id: &str) {
+        let mut indexes = self.indexes.write();
+        let prefix = format!("{}:", collection);
+        for (key, index) in indexes.iter_mut() {
+            if key.starts_with(&prefix) {
+                index.remove(doc_id);
+            }
         }
     }
 
@@ -333,6 +344,14 @@ mod tests {
         assert_eq!(results[0].doc_id, "doc1"); // Exact match
         assert_eq!(results[1].doc_id, "doc2"); // Very similar
         assert!((results[0].score - 1.0).abs() < 0.001); // cosine = 1.0
+    }
+
+    #[test]
+    fn test_hnsw_api() {
+        use hnsw_rs::prelude::*;
+        let _ = Hnsw::<f32, DistCosine>::new(16, 1000, 16, 200, DistCosine);
+        let _ = Hnsw::<f32, DistL2>::new(16, 1000, 16, 200, DistL2);
+        let _ = Hnsw::<f32, DistDot>::new(16, 1000, 16, 200, DistDot);
     }
 
     #[test]

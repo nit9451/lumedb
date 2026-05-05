@@ -10,6 +10,10 @@ export default function LumeStudio() {
   const [status, setStatus] = useState<'connected' | 'disconnected'>('disconnected');
   const [host, setHost] = useState('127.0.0.1');
   const [port, setPort] = useState('7070');
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('password');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authError, setAuthError] = useState('');
 
   // Ping the server to check status and get collections on load
   useEffect(() => {
@@ -18,32 +22,41 @@ export default function LumeStudio() {
 
   const checkConnection = async () => {
     try {
-      // 1. Ping
+      // 1. Ping (and Authenticate)
       const pingRes = await fetch('/api/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ping', host, port })
+        body: JSON.stringify({ action: 'ping', host, port, username, password })
       });
       const pingData = await pingRes.json();
       
       if (pingData.status === 'ok') {
         setStatus('connected');
+        setIsAuthenticated(true);
+        setAuthError('');
         
         // 2. Fetch collections
         const colRes = await fetch('/api/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'listCollections', host, port })
+          body: JSON.stringify({ action: 'listCollections', host, port, username, password })
         });
         const colData = await colRes.json();
         if (colData.collections) {
           setCollections(colData.collections);
         }
       } else {
-        setStatus('disconnected');
+        if (pingData.error?.includes('Unauthorized') || pingData.error?.includes('credentials')) {
+            setIsAuthenticated(false);
+            setAuthError(pingData.error);
+        } else {
+            setStatus('disconnected');
+            setIsAuthenticated(false);
+        }
       }
     } catch (e) {
       setStatus('disconnected');
+      setIsAuthenticated(false);
     }
   };
 
@@ -55,7 +68,7 @@ export default function LumeStudio() {
       const res = await fetch('/api/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...parsedQuery, host, port })
+        body: JSON.stringify({ ...parsedQuery, host, port, username, password })
       });
       
       const data = await res.json();
@@ -102,6 +115,50 @@ export default function LumeStudio() {
     setQuery(examples[type] || '');
   };
 
+  if (!isAuthenticated && status !== 'connected') {
+    return (
+      <div className="container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div className="panel animated" style={{ width: '400px', padding: '2rem' }}>
+          <div className="logo" style={{ justifyContent: 'center', marginBottom: '2rem', fontSize: '2rem' }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '36px', height: '36px'}}>
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+              <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+            LumeDB
+          </div>
+          <h3 style={{ textAlign: 'center', marginBottom: '1.5rem', color: 'var(--text-secondary)' }}>Login to Studio</h3>
+          
+          {authError && <div style={{ color: 'var(--error)', background: 'rgba(239, 68, 68, 0.1)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem', textAlign: 'center' }}>{authError}</div>}
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <input 
+              type="text" 
+              placeholder="Username" 
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'white', padding: '0.8rem', borderRadius: '8px', width: '100%' }}
+            />
+            <input 
+              type="password" 
+              placeholder="Password" 
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'white', padding: '0.8rem', borderRadius: '8px', width: '100%' }}
+            />
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input type="text" value={host} onChange={e => setHost(e.target.value)} placeholder="Host" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'white', padding: '0.8rem', borderRadius: '8px', width: '70%' }} />
+              <input type="text" value={port} onChange={e => setPort(e.target.value)} placeholder="Port" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'white', padding: '0.8rem', borderRadius: '8px', width: '30%' }} />
+            </div>
+            <button className="btn" onClick={checkConnection} style={{ width: '100%', marginTop: '0.5rem', padding: '1rem' }}>
+              Connect & Authenticate
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container">
       <header>
@@ -135,7 +192,13 @@ export default function LumeStudio() {
           >
             Connect
           </button>
-          <div className={`status-badge ${status}`} style={{ marginLeft: '1rem' }}>
+          <button 
+            onClick={() => setIsAuthenticated(false)}
+            style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: 'var(--error)', padding: '0.4rem 0.8rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', marginLeft: '0.5rem' }}
+          >
+            Logout
+          </button>
+          <div className={`status-badge ${status}`} style={{ marginLeft: '0.5rem' }}>
             <div className="status-dot"></div>
             {status === 'connected' ? 'Connected' : 'Disconnected'}
           </div>

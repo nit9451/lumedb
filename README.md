@@ -1,56 +1,118 @@
 # 🌀 LumeDB
 
-A high-performance NoSQL document database built from scratch in Rust.
+A high-performance, AI-native NoSQL document database built from scratch in Rust.
 
-**ACID Compliant** • **LSM-Tree Storage** • **Bloom Filters** • **LZ4 Compression** • **B-Tree Indexes** • **MVCC Transactions**
+**Vector Search** • **ACID Compliant** • **LSM-Tree Storage** • **Bloom Filters** • **MVCC Transactions**
 
-## Quick Start
+![LumeDB Banner](https://img.shields.io/badge/Written_in-Rust-FA4F28?style=for-the-badge&logo=rust)
+![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker)
+![Frontend](https://img.shields.io/badge/LumeDB_Studio-Next.js-black?style=for-the-badge&logo=next.js)
+
+LumeDB combines traditional JSON document storage with high-dimensional AI Vector Embeddings. It is designed to be the only database you need when building modern Retrieval-Augmented Generation (RAG) applications.
+
+<p align="center">
+  <i>(📸 Place a screenshot of your LumeDB Studio UI here: <code>docs/studio-screenshot.png</code>)</i>
+  <br/>
+  <img src="docs/studio-screenshot.png" width="800" alt="LumeDB Studio Screenshot" onerror="this.style.display='none'">
+</p>
+
+## ✨ Features
+
+- **Hybrid AI Search** — Filter documents using standard operators and rank by vector cosine similarity.
+- **Document Model** — Flexible JSON documents with auto-generated UUIDs.
+- **Query DSL** — `$eq`, `$gt`, `$lt`, `$in`, `$or`, `$and`, and more.
+- **ACID Transactions** — MVCC with snapshot isolation.
+- **Durability** — Write-Ahead Log (WAL) with CRC32 checksums.
+- **LumeDB Studio** — A beautiful, interactive web-based GUI for data management.
+- **Dockerized Deployment** — Production-ready containerized environment.
+
+---
+
+## 🚀 Quick Start (Docker)
+
+The fastest way to get started is using the provided setup script, which pulls the Docker image and starts the server on port `7070`.
+
+```bash
+chmod +x setup-lumedb.sh
+./setup-lumedb.sh
+```
+
+## 💻 LumeDB Studio (Web GUI)
+
+We have a dedicated Next.js graphical interface to manage your database and visualize vector embeddings.
+
+**Live Demo:** 🌍 [https://lumedb-8ivc.vercel.app/](https://lumedb-8ivc.vercel.app/)
+
+**Run Locally:**
+If you prefer to run the Studio locally on your own machine:
+```bash
+cd lumedb-studio
+npm install
+npm run dev
+```
+Navigate to `http://localhost:3000` and connect to your local engine at `127.0.0.1:7070`.
+
+---
+
+## 📖 Usage Examples
+
+LumeDB communicates over TCP using JSON. You can execute these in LumeDB Studio's Query Editor or via a TCP client.
+
+### Standard CRUD
+```json
+{
+  "action": "insert",
+  "collection": "users",
+  "document": { "name": "Alice", "age": 30, "role": "engineer" }
+}
+```
+
+```json
+{
+  "action": "find",
+  "collection": "users",
+  "query": { "age": { "$gte": 25 } }
+}
+```
+
+### AI Vector Search
+Create a vector index on a collection to enable similarity search:
+```json
+{
+  "action": "createVectorIndex",
+  "collection": "articles",
+  "field": "embedding",
+  "dimensions": 1536,
+  "metric": "cosine"
+}
+```
+
+Filter by category AND find the closest vector simultaneously:
+```json
+{
+  "action": "vectorSearch",
+  "collection": "articles",
+  "vector": [0.11, -0.42, 0.89, 0.12],
+  "k": 5,
+  "filter": { "category": "programming" }
+}
+```
+
+---
+
+## 📚 Documentation
+- [Learning Guide](./LEARNING_LUMEDB.md) - Deep dive into usage and vector search.
+- [Developer Guide](./DEVELOPER_GUIDE.md) - API reference, internals, and architecture.
+
+## 🛠️ Building from Source (Local Engine)
 
 ```bash
 source "$HOME/.cargo/env"
 cargo build --release
 
-# Terminal 1 — Start server
+# Start server
 cargo run --release --bin lumedb-server
-
-# Terminal 2 — Start CLI
-cargo run --release --bin vortex-cli
-```
-
-## Usage
-
-```
-vortex> db.users.insert({"name": "Alice", "age": 30, "city": "NYC"})
-vortex> db.users.find({"age": {"$gte": 25}})
-vortex> db.users.update({"name": "Alice"}, {"$set": {"age": 31}})
-vortex> db.users.delete({"name": "Alice"})
-vortex> stats
-```
-
-## Features
-
-- **Document Model** — Flexible JSON documents with auto-generated UUIDs
-- **Query DSL** — `$eq` `$gt` `$lt` `$in` `$or` `$and` `$not` `$exists` and more
-- **Update Operators** — `$set` `$unset` `$inc` `$push` `$pull`
-- **Secondary Indexes** — B-Tree indexes with unique constraints
-- **ACID Transactions** — MVCC with snapshot isolation
-- **Durability** — Write-Ahead Log with CRC32 checksums
-- **Compression** — LZ4 on all SSTables
-- **Bloom Filters** — O(1) negative key lookups (1% FP rate)
-- **TCP Server** — JSON wire protocol on port 7070
-- **Interactive CLI** — Colorized REPL with MongoDB-style syntax
-
-## Docs
-
-See [DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md) for full API reference, architecture, and internals.
-
-## Tests
-
-```bash
-cargo test    # 24 tests across all modules
-bash demo.sh  # Integration test against running server
 ```
 
 ## License
-
 MIT
