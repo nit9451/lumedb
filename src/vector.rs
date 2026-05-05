@@ -4,8 +4,9 @@
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use hnsw_rs::prelude::*;
 
 /// Distance metric for vector comparisons
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -40,83 +41,132 @@ pub struct VectorIndexConfig {
     pub metric: DistanceMetric,
 }
 
-/// A flat vector index — exact search via brute-force scan
-/// Practical and correct for up to ~100K vectors
-#[derive(Debug)]
-struct FlatVectorIndex {
-    config: VectorIndexConfig,
-    vectors: Vec<VectorEntry>,
+/// HNSW wrapper for fast approximate vector search
+pub struct HnswVectorIndex {
+    pub config: VectorIndexConfig,
+    hnsw_cosine: Option<Hnsw<'static, f32, DistCosine>>,
+    hnsw_l2: Option<Hnsw<'static, f32, DistL2>>,
+    hnsw_dot: Option<Hnsw<'static, f32, DistDot>>,
+    doc_to_id: HashMap<String, usize>,
+    id_to_doc: HashMap<usize, String>,
+    deleted_ids: HashSet<usize>,
+    next_id: usize,
+    count: usize,
 }
 
-impl FlatVectorIndex {
+impl HnswVectorIndex {
     fn new(config: VectorIndexConfig) -> Self {
-        FlatVectorIndex {
+        let max_nb_connection = 16;
+        let max_elements = 1000000;
+        let max_layer = 16;
+        let ef_construction = 200;
+
+        let mut hnsw_cosine = None;
+        let mut hnsw_l2 = None;
+        let mut hnsw_dot = None;
+
+        match config.metric {
+            DistanceMetric::Cosine => {
+                hnsw_cosine = Some(Hnsw::<f32, DistCosine>::new(max_nb_connection, max_elements, max_layer, ef_construction, DistCosine));
+            }
+            DistanceMetric::Euclidean => {
+                hnsw_l2 = Some(Hnsw::<f32, DistL2>::new(max_nb_connection, max_elements, max_layer, ef_construction, DistL2));
+            }
+            DistanceMetric::DotProduct => {
+                hnsw_dot = Some(Hnsw::<f32, DistDot>::new(max_nb_connection, max_elements, max_layer, ef_construction, DistDot));
+            }
+        }
+
+        Self {
             config,
-            vectors: Vec::new(),
+            hnsw_cosine,
+            hnsw_l2,
+            hnsw_dot,
+            doc_to_id: HashMap::new(),
+            id_to_doc: HashMap::new(),
+            deleted_ids: HashSet::new(),
+            next_id: 1,
+            count: 0,
         }
     }
 
-    /// Insert a vector for a document
     fn insert(&mut self, doc_id: &str, vector: Vec<f32>) {
-        let norm = l2_norm(&vector);
-        // Remove existing entry for this doc if updating
-        self.vectors.retain(|e| e.doc_id != doc_id);
-        self.vectors.push(VectorEntry {
-            doc_id: doc_id.to_string(),
-            vector,
-            norm,
-        });
+        let data_id = if let Some(&id) = self.doc_to_id.get(doc_id) {
+            self.deleted_ids.remove(&id); // un-delete if it was deleted
+            id
+        } else {
+            let id = self.next_id;
+            self.next_id += 1;
+            self.doc_to_id.insert(doc_id.to_string(), id);
+            self.id_to_doc.insert(id, doc_id.to_string());
+            self.count += 1;
+            id
+        };
+
+        if let Some(h) = &mut self.hnsw_cosine { h.insert((&vector, data_id)); }
+        if let Some(h) = &mut self.hnsw_l2 { h.insert((&vector, data_id)); }
+        if let Some(h) = &mut self.hnsw_dot { h.insert((&vector, data_id)); }
     }
 
-    /// Remove a document's vector
     fn remove(&mut self, doc_id: &str) {
-        self.vectors.retain(|e| e.doc_id != doc_id);
+        if let Some(&id) = self.doc_to_id.get(doc_id) {
+            self.deleted_ids.insert(id);
+            self.doc_to_id.remove(doc_id);
+            self.count = self.count.saturating_sub(1);
+            // hnsw_rs does not support hard delete efficiently, so we just track it in deleted_ids
+        }
     }
 
-    /// Search for the K nearest neighbors
     fn search(&self, query: &[f32], k: usize, filter_ids: Option<&[String]>) -> Vec<VectorSearchResult> {
-        let query_norm = l2_norm(query);
-        let mut scored: Vec<VectorSearchResult> = self
-            .vectors
-            .iter()
-            .filter(|entry| {
-                filter_ids
-                    .map(|ids| ids.contains(&entry.doc_id))
-                    .unwrap_or(true)
-            })
-            .map(|entry| {
-                let (score, distance) = match self.config.metric {
-                    DistanceMetric::Cosine => {
-                        let sim = cosine_similarity(query, &entry.vector, query_norm, entry.norm);
-                        (sim as f64, (1.0 - sim) as f64)
-                    }
-                    DistanceMetric::Euclidean => {
-                        let dist = euclidean_distance(query, &entry.vector);
-                        // Convert distance to a similarity score (higher = more similar)
-                        let sim = 1.0 / (1.0 + dist);
-                        (sim as f64, dist as f64)
-                    }
-                    DistanceMetric::DotProduct => {
-                        let dp = dot_product(query, &entry.vector);
-                        (dp as f64, -(dp as f64))
-                    }
-                };
-                VectorSearchResult {
-                    doc_id: entry.doc_id.clone(),
-                    score,
-                    distance,
-                }
-            })
-            .collect();
+        let ef_search = (k * 10).max(100); // over-fetch for post-filtering
+        
+        let neighbors = if let Some(h) = &self.hnsw_cosine {
+            h.search(query, ef_search, ef_search)
+        } else if let Some(h) = &self.hnsw_l2 {
+            h.search(query, ef_search, ef_search)
+        } else if let Some(h) = &self.hnsw_dot {
+            h.search(query, ef_search, ef_search)
+        } else {
+            vec![]
+        };
 
-        // Sort by score descending (highest similarity first)
-        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-        scored.truncate(k);
+        let mut scored = Vec::new();
+        for neighbor in neighbors {
+            if self.deleted_ids.contains(&neighbor.d_id) {
+                continue;
+            }
+            if let Some(doc_id) = self.id_to_doc.get(&neighbor.d_id) {
+                if let Some(filters) = filter_ids {
+                    if !filters.contains(doc_id) {
+                        continue;
+                    }
+                }
+
+                // Convert distance to similarity score
+                let dist = neighbor.distance;
+                let score = match self.config.metric {
+                    DistanceMetric::Cosine => 1.0 - (dist as f64), // dist is 1 - cos_sim
+                    DistanceMetric::Euclidean => 1.0 / (1.0 + dist as f64),
+                    DistanceMetric::DotProduct => -(dist as f64), // dist is -dot
+                };
+
+                scored.push(VectorSearchResult {
+                    doc_id: doc_id.clone(),
+                    score,
+                    distance: dist as f64,
+                });
+            }
+
+            if scored.len() >= k {
+                break;
+            }
+        }
+
         scored
     }
 
     fn len(&self) -> usize {
-        self.vectors.len()
+        self.count
     }
 }
 
@@ -150,7 +200,7 @@ fn euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
 /// Manages all vector indexes across collections
 pub struct VectorIndexManager {
     /// collection_name -> VectorIndex
-    indexes: Arc<RwLock<HashMap<String, FlatVectorIndex>>>,
+    indexes: Arc<RwLock<HashMap<String, HnswVectorIndex>>>,
 }
 
 impl VectorIndexManager {
@@ -170,7 +220,7 @@ impl VectorIndexManager {
                 config.collection, config.field
             ));
         }
-        indexes.insert(key, FlatVectorIndex::new(config));
+        indexes.insert(key, HnswVectorIndex::new(config));
         Ok(())
     }
 
