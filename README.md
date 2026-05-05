@@ -25,6 +25,44 @@ LumeDB combines traditional JSON document storage with high-dimensional AI Vecto
 - **Durability** — Write-Ahead Log (WAL) with CRC32 checksums.
 - **LumeDB Studio** — A beautiful, interactive web-based GUI for data management.
 - **Dockerized Deployment** — Production-ready containerized environment.
+- **Production Hardened** — TLS Encryption and Role-Based Access Control (RBAC).
+
+---
+
+## 🏛 Architecture
+
+LumeDB is built on a high-performance **LSM-Tree (Log-Structured Merge-Tree)** architecture, optimized for high write throughput and modern AI workloads.
+
+```mermaid
+graph TD
+    Client[Client / CLI / Studio] -- TCP + TLS --> Server[TCP Server]
+    Server -- JSON Command --> Engine[Query Engine]
+    
+    subgraph "Storage Engine (LSM-Tree)"
+        Engine -- Atomic Write --> WAL[Write-Ahead Log]
+        Engine -- In-Memory --> MemTable[MemTable]
+        MemTable -- Flush --> SSTable[SSTables on Disk]
+        SSTable -- Filter --> Bloom[Bloom Filters]
+    end
+    
+    subgraph "Vector Engine"
+        Engine -- Index --> HNSW[HNSW Graph Index]
+        HNSW -- ANN Search --> Vectors[On-Disk Vector Storage]
+    end
+    
+    subgraph "Security Layer"
+        Engine -- Auth --> RBAC[RBAC Module]
+        RBAC -- Hidden Coll --> Users[_users Collection]
+    end
+```
+
+### Core Components
+
+- **LSM-Tree Storage**: Writes are appended to an in-memory `MemTable` and a persistent `WAL` for O(1) write performance. Periodically, MemTables are flushed to immutable, compressed `SSTables`.
+- **HNSW Vector Index**: Uses the **Hierarchical Navigable Small World** graph algorithm for lightning-fast approximate nearest neighbor (ANN) search across millions of vectors.
+- **MVCC Transactions**: Implements Snapshot Isolation, allowing concurrent reads and writes without locking.
+- **Security**: End-to-end **TLS Encryption** for all TCP traffic and **RBAC** for user authentication and role verification.
+- **Optimization**: Every SSTable includes a **Bloom Filter** to skip unnecessary disk reads, and data blocks are compressed using **LZ4**.
 
 ---
 
