@@ -51,10 +51,13 @@ async fn main() {
         .cloned()
         .unwrap_or_else(|| "127.0.0.1".to_string());
 
+    let use_tls = !args.iter().any(|a| a == "--no-tls");
+
     let config = ServerConfig {
         host,
         port,
         data_dir,
+        use_tls,
     };
 
     if let Err(e) = start_server(config).await {

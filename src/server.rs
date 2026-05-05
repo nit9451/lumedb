@@ -9,13 +9,12 @@ use crate::vector::DistanceMetric;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio_rustls::rustls::ServerConfig as TlsServerConfig;
 use tokio_rustls::TlsAcceptor;
 use std::fs;
 use std::io::BufReader as StdBufReader;
-use rustls_pki_types::{CertificateWithDer, PrivateKeyDer};
 
 /// Server configuration
 pub struct ServerConfig {
@@ -51,7 +50,7 @@ fn load_tls_config(config: &ServerConfig) -> LumeResult<TlsServerConfig> {
         
         fs::write(&cert_path, cert.cert.pem())
             .map_err(|e| crate::error::LumeError::Internal(e.to_string()))?;
-        fs::write(&key_path, cert.key_pair.serialize_pem())
+        fs::write(&key_path, cert.signing_key.serialize_pem())
             .map_err(|e| crate::error::LumeError::Internal(e.to_string()))?;
     }
 
@@ -112,11 +111,12 @@ pub async fn start_server(config: ServerConfig) -> LumeResult<()> {
         println!("📡 New connection from {}", peer_addr);
 
         tokio::spawn(async move {
-            let (mut reader, mut writer) = if let Some(acceptor) = acceptor {
+            let is_tls = acceptor.is_some();
+            let (mut reader, mut writer): (BufReader<Box<dyn tokio::io::AsyncRead + Unpin + Send>>, Box<dyn tokio::io::AsyncWrite + Unpin + Send>) = if let Some(acceptor) = acceptor {
                 match acceptor.accept(socket).await {
                     Ok(tls_stream) => {
-                        let (r, w) = split(tls_stream);
-                        (BufReader::new(r), Box::pin(w) as Box<dyn AsyncWriteExt + Unpin + Send>)
+                        let (r, w) = tokio::io::split(tls_stream);
+                        (BufReader::new(Box::new(r)), Box::new(w))
                     }
                     Err(e) => {
                         eprintln!("❌ TLS Handshake error from {}: {}", peer_addr, e);
@@ -125,7 +125,7 @@ pub async fn start_server(config: ServerConfig) -> LumeResult<()> {
                 }
             } else {
                 let (r, w) = socket.into_split();
-                (BufReader::new(r), Box::pin(w) as Box<dyn AsyncWriteExt + Unpin + Send>)
+                (BufReader::new(Box::new(r)), Box::new(w))
             };
 
             let mut line = String::new();
@@ -136,7 +136,7 @@ pub async fn start_server(config: ServerConfig) -> LumeResult<()> {
                 "status": "connected",
                 "server": "LumeDB",
                 "version": "0.1.0",
-                "use_tls": acceptor.is_some(),
+                "use_tls": is_tls,
                 "message": "Welcome to LumeDB! Send JSON commands."
             });
             let _ = writer

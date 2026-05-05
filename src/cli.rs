@@ -10,6 +10,7 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use rustls::pki_types::ServerName;
 
+#[derive(Debug)]
 struct NoCertificateVerification;
 
 impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
@@ -103,9 +104,9 @@ fn main() {
         .with_custom_certificate_verifier(Arc::new(NoCertificateVerification))
         .with_no_client_auth();
     
-    let server_name = ServerName::try_from(host.as_str()).unwrap_or(ServerName::try_from("localhost").unwrap());
-    let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
-    let mut stream = rustls::StreamOwned::new(conn, tcp_stream);
+    let server_name = ServerName::try_from("localhost").unwrap();
+    let conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
+    let stream = rustls::StreamOwned::new(conn, tcp_stream);
     
     println!("{} TLS Handshake successful\n", "🔒".cyan());
 
@@ -124,8 +125,6 @@ fn main() {
             }
         }
     }
-
-    let mut writer = reader.into_inner();
 
     // Start REPL
     let mut rl = DefaultEditor::new().unwrap();
@@ -162,17 +161,17 @@ fn main() {
                     }
                     "stats" => {
                         let cmd = json!({"action": "stats"});
-                        send_command(&mut writer, &mut reader, &cmd);
+                        send_command(&mut reader, &cmd);
                         continue;
                     }
                     "collections" | "show collections" => {
                         let cmd = json!({"action": "listCollections"});
-                        send_command(&mut writer, &mut reader, &cmd);
+                        send_command(&mut reader, &cmd);
                         continue;
                     }
                     "ping" => {
                         let cmd = json!({"action": "ping"});
-                        send_command(&mut writer, &mut reader, &cmd);
+                        send_command(&mut reader, &cmd);
                         continue;
                     }
                     _ => {}
@@ -195,7 +194,7 @@ fn main() {
                             "username": parts[1],
                             "password": parts[2]
                         });
-                        send_command(&mut writer, &mut reader, &cmd);
+                        send_command(&mut reader, &cmd);
                     } else {
                         println!("  {} Usage: auth <username> <password>", "❌".red());
                     }
@@ -204,10 +203,10 @@ fn main() {
 
                 // Handle collection commands: db.<collection>.<action>(...)
                 if let Some(cmd) = parse_db_command(&line, &current_collection) {
-                    send_command(&mut writer, &mut reader, &cmd);
+                    send_command(&mut reader, &cmd);
                 } else if let Ok(cmd) = serde_json::from_str::<Value>(&line) {
                     // Raw JSON command
-                    send_command(&mut writer, &mut reader, &cmd);
+                    send_command(&mut reader, &cmd);
                 } else {
                     println!("  {} Invalid command. Type 'help' for usage.", "❌".red());
                 }
@@ -335,14 +334,14 @@ fn parse_db_command(input: &str, current_collection: &Option<String>) -> Option<
 }
 
 /// Send a command to the server and print the response
-fn send_command(writer: &mut TcpStream, reader: &mut BufReader<TcpStream>, cmd: &Value) {
+fn send_command<S: Read + Write>(reader: &mut BufReader<S>, cmd: &Value) {
     let cmd_str = format!("{}\n", cmd.to_string());
 
-    if writer.write_all(cmd_str.as_bytes()).is_err() {
+    if reader.get_mut().write_all(cmd_str.as_bytes()).is_err() {
         println!("  {} Connection lost", "❌".red());
         return;
     }
-    let _ = writer.flush();
+    let _ = reader.get_mut().flush();
 
     let mut response = String::new();
     match reader.read_line(&mut response) {
