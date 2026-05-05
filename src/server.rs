@@ -9,14 +9,20 @@ use crate::vector::DistanceMetric;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split};
 use tokio::net::TcpListener;
+use tokio_rustls::rustls::ServerConfig as TlsServerConfig;
+use tokio_rustls::TlsAcceptor;
+use std::fs;
+use std::io::BufReader as StdBufReader;
+use rustls_pki_types::{CertificateWithDer, PrivateKeyDer};
 
 /// Server configuration
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub data_dir: PathBuf,
+    pub use_tls: bool,
 }
 
 impl Default for ServerConfig {
@@ -25,8 +31,48 @@ impl Default for ServerConfig {
             host: "127.0.0.1".to_string(),
             port: 7070,
             data_dir: PathBuf::from("./lumedb_data"),
+            use_tls: true,
         }
     }
+}
+
+/// Load TLS certificates and private key
+fn load_tls_config(config: &ServerConfig) -> LumeResult<TlsServerConfig> {
+    let cert_path = config.data_dir.join("cert.pem");
+    let key_path = config.data_dir.join("key.pem");
+
+    if !cert_path.exists() || !key_path.exists() {
+        println!("📝 Generating self-signed TLS certificates...");
+        fs::create_dir_all(&config.data_dir).map_err(|e| crate::error::LumeError::Internal(e.to_string()))?;
+        
+        let subject_alt_names = vec!["localhost".to_string(), config.host.clone()];
+        let cert = rcgen::generate_simple_self_signed(subject_alt_names)
+            .map_err(|e| crate::error::LumeError::Internal(format!("Cert generation error: {}", e)))?;
+        
+        fs::write(&cert_path, cert.cert.pem())
+            .map_err(|e| crate::error::LumeError::Internal(e.to_string()))?;
+        fs::write(&key_path, cert.key_pair.serialize_pem())
+            .map_err(|e| crate::error::LumeError::Internal(e.to_string()))?;
+    }
+
+    let cert_file = fs::File::open(&cert_path).map_err(|e| crate::error::LumeError::Internal(e.to_string()))?;
+    let mut cert_reader = StdBufReader::new(cert_file);
+    let certs: Vec<_> = rustls_pemfile::certs(&mut cert_reader)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| crate::error::LumeError::Internal(e.to_string()))?;
+
+    let key_file = fs::File::open(&key_path).map_err(|e| crate::error::LumeError::Internal(e.to_string()))?;
+    let mut key_reader = StdBufReader::new(key_file);
+    let key = rustls_pemfile::private_key(&mut key_reader)
+        .map_err(|e| crate::error::LumeError::Internal(e.to_string()))?
+        .ok_or_else(|| crate::error::LumeError::Internal("No private key found".to_string()))?;
+
+    let config = TlsServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .map_err(|e| crate::error::LumeError::Internal(format!("TLS config error: {}", e)))?;
+
+    Ok(config)
 }
 
 /// Start the LumeDB TCP server
@@ -42,7 +88,17 @@ pub async fn start_server(config: ServerConfig) -> LumeResult<()> {
         crate::error::LumeError::Internal(format!("Failed to bind to {}: {}", addr, e))
     })?;
 
+    let tls_acceptor = if config.use_tls {
+        let tls_config = load_tls_config(&config)?;
+        Some(TlsAcceptor::from(Arc::new(tls_config)))
+    } else {
+        None
+    };
+
     println!("🌀 LumeDB server listening on {}", addr);
+    if config.use_tls {
+        println!("🔒 TLS Encryption enabled");
+    }
     println!("   Data directory: {}", config.data_dir.display());
     println!("   Ready to accept connections...\n");
 
@@ -52,11 +108,26 @@ pub async fn start_server(config: ServerConfig) -> LumeResult<()> {
         })?;
 
         let engine = Arc::clone(&engine);
+        let acceptor = tls_acceptor.clone();
         println!("📡 New connection from {}", peer_addr);
 
         tokio::spawn(async move {
-            let (reader, mut writer) = socket.into_split();
-            let mut reader = BufReader::new(reader);
+            let (mut reader, mut writer) = if let Some(acceptor) = acceptor {
+                match acceptor.accept(socket).await {
+                    Ok(tls_stream) => {
+                        let (r, w) = split(tls_stream);
+                        (BufReader::new(r), Box::pin(w) as Box<dyn AsyncWriteExt + Unpin + Send>)
+                    }
+                    Err(e) => {
+                        eprintln!("❌ TLS Handshake error from {}: {}", peer_addr, e);
+                        return;
+                    }
+                }
+            } else {
+                let (r, w) = socket.into_split();
+                (BufReader::new(r), Box::pin(w) as Box<dyn AsyncWriteExt + Unpin + Send>)
+            };
+
             let mut line = String::new();
             let mut session_role: Option<Role> = None;
 
@@ -65,6 +136,7 @@ pub async fn start_server(config: ServerConfig) -> LumeResult<()> {
                 "status": "connected",
                 "server": "LumeDB",
                 "version": "0.1.0",
+                "use_tls": acceptor.is_some(),
                 "message": "Welcome to LumeDB! Send JSON commands."
             });
             let _ = writer

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import net from 'net';
+import tls from 'tls';
 
 export async function POST(req: Request) {
   try {
@@ -7,17 +7,19 @@ export async function POST(req: Request) {
     const { host = '127.0.0.1', port = 7070, username, password, ...command } = body;
     
     return new Promise<Response>((resolve) => {
-      const client = new net.Socket();
-      let responseData = '';
-      let isAuthenticating = !!(username && password);
-      
-      client.connect(Number(port), host, () => {
+      // Use tls.connect instead of net.Socket for encrypted connection
+      const client = tls.connect(Number(port), host, {
+        rejectUnauthorized: false // Allow self-signed certificates
+      }, () => {
         if (isAuthenticating && command.action !== 'authenticate') {
             client.write(JSON.stringify({ action: 'authenticate', username, password }) + '\n');
         } else {
             client.write(JSON.stringify(command) + '\n');
         }
       });
+
+      let responseData = '';
+      let isAuthenticating = !!(username && password);
 
       client.on('data', (data) => {
         responseData += data.toString();
@@ -67,7 +69,7 @@ export async function POST(req: Request) {
 
       client.on('error', (err) => {
         client.destroy();
-        resolve(NextResponse.json({ status: 'error', error: 'Failed to connect to LumeDB. Is it running on port 7070?' }, { status: 500 }));
+        resolve(NextResponse.json({ status: 'error', error: `Failed to connect to LumeDB over TLS: ${err.message}` }, { status: 500 }));
       });
       
       client.on('timeout', () => {

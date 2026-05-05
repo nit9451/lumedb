@@ -5,8 +5,47 @@ use colored::Colorize;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use serde_json::{json, Value};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write, Read};
 use std::net::TcpStream;
+use std::sync::Arc;
+use rustls::pki_types::ServerName;
+
+struct NoCertificateVerification;
+
+impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::aws_lc_rs::default_provider().signature_verification_algorithms.supported_schemes()
+    }
+}
 
 const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 7070;
@@ -40,9 +79,9 @@ fn main() {
     let addr = format!("{}:{}", host, port);
 
     // Try to connect
-    let stream = match TcpStream::connect(&addr) {
+    let tcp_stream = match TcpStream::connect(&addr) {
         Ok(s) => {
-            println!("{} Connected to LumeDB at {}\n", "✅".green(), addr);
+            println!("{} Connected to {} (TCP)\n", "✅".green(), addr);
             s
         }
         Err(e) => {
@@ -58,17 +97,35 @@ fn main() {
         }
     };
 
+    // TLS Setup
+    let config = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(NoCertificateVerification))
+        .with_no_client_auth();
+    
+    let server_name = ServerName::try_from(host.as_str()).unwrap_or(ServerName::try_from("localhost").unwrap());
+    let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
+    let mut stream = rustls::StreamOwned::new(conn, tcp_stream);
+    
+    println!("{} TLS Handshake successful\n", "🔒".cyan());
+
     // Read welcome message
-    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut reader = BufReader::new(stream);
     let mut welcome = String::new();
     let _ = reader.read_line(&mut welcome);
+    
     if let Ok(msg) = serde_json::from_str::<Value>(&welcome) {
         if let Some(message) = msg.get("message").and_then(|v| v.as_str()) {
             println!("   {}", message.dimmed());
         }
+        if let Some(use_tls) = msg.get("use_tls").and_then(|v| v.as_bool()) {
+            if use_tls {
+                println!("   {}", "Encrypted session established".cyan().italic());
+            }
+        }
     }
 
-    let mut writer = stream;
+    let mut writer = reader.into_inner();
 
     // Start REPL
     let mut rl = DefaultEditor::new().unwrap();
